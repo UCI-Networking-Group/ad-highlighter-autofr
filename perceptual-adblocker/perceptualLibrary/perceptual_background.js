@@ -15,7 +15,21 @@ var VERBOSE = false;
 // WARNING: Slow.
 var USE_OCR = false;
 
+// keep track of URLS that are potential ads
+var TRACK_POTENTIAL_AD_URLS = true;
+
+// Keep track of unmatched hashes
+var TRACK_DISSIMILAR_HASHES = false;
+
+// keep track of global count of ad chocies identified
+var ad_choices_found = 0;
+// keep track of urls that were associated to ad covers for the icons/images we matched with
+const adUrls = new Set()
+const potentialAdUrls = new Set()
+
+
 if (USE_OCR) {
+    /*
     // Initialize Tesseract OCR every ten seconds.
     // NOTE: We refresh the object because after some time
     // the memory of the Tesseract worker becomes corrupted.
@@ -32,6 +46,8 @@ if (USE_OCR) {
             corePath: chrome.extension.getURL('externalCode/tesseract_index.js')
         });
     }, 10000);
+
+    */
 }
 // Image hash based on average pixel value, adapted from
 // perceptual hashing algorithm found at
@@ -46,9 +62,28 @@ var aHash = function(img) {
 
     canvas.width = width;
     canvas.height = height;
-    ctx.drawImage(img, 0, 0, width, height);
-    var im = ctx.getImageData(0, 0, width, height);
 
+    if (img.bgXPos != null && img.bgYPos != null &&
+        img.originalWidth > 1 && img.originalHeight > 1) {
+
+        let srcWidth = img.originalWidth;
+        let srcHeight = img.originalHeight;
+
+        if (img.backgroundSizeWidth && img.backgroundSizeWidth != img.naturalWidth) {
+            srcWidth = parseInt((img.originalWidth*img.naturalWidth)/img.backgroundSizeWidth)
+        }
+        if (img.backgroundSizeHeight && img.backgroundSizeHeight != img.naturalHeight) {
+            srcHeight= parseInt((img.originalHeight*img.naturalHeight)/img.backgroundSizeHeight)
+        }
+        ctx.drawImage(img, img.bgXPos, img.bgYPos, srcWidth, srcHeight,
+            0, 0, width, height);
+        //console.log("Found sprite");
+        //console.log(img);
+    } else {
+        ctx.drawImage(img, 0, 0, width, height);
+    }
+
+    var im = ctx.getImageData(0, 0, width, height);
     var num_channels = 4;
     var vals = new Float64Array(width * height);
 
@@ -56,7 +91,7 @@ var aHash = function(img) {
     for(var i = 0; i < width; i++){
         for(var j = 0; j < height; j++){
             var base = num_channels * (width * j + i);
-            if (im.data[base+3]  == 0) {
+            if (im.data[base+3]  === 0) {
                 vals[width * j + i] = 255;
                 continue
             }
@@ -138,6 +173,7 @@ var distance = function(a, b) {
 
 // Cache containing elements already identified as adchoices.
 var adchoices_cache = {};
+var src_to_hex_hash = {};
 
 // Receives a single (URL, string_of_dom_element) pair from
 // the content script and determines whether the image is an
@@ -146,8 +182,14 @@ chrome.runtime.onMessage.addListener(
     function(request, sender, sendResponse) {
 
         if ("data" in request) {
+
             if (VERBOSE) {
                 console.log(request['data']);
+            }
+            let given_url = request['data'][0];
+            if (!given_url.startsWith("http") && !given_url.startsWith("data:") && !given_url.startsWith("blob:")) {
+                //console.log("Skipping " + request['data'][0]);
+                return true;
             }
 
             // Check to see if element is already in adchoices_cache.
@@ -156,7 +198,12 @@ chrome.runtime.onMessage.addListener(
                     if (VERBOSE) {
                         console.log('Using cache (adchoice found) ', request['data'][1]);
                     }
-                    sendResponse({element: request['data'][1]});
+
+                    sendResponse({
+                        element: request['data'][1],
+                        isIFrame:request['isIFrame'],
+                        src_url: request['data'][0],
+                        searchSrc: request["searchSrc"]});
                     return;
                 } else {
                     if (VERBOSE) {
@@ -168,13 +215,14 @@ chrome.runtime.onMessage.addListener(
             }
 
             var t0 = performance.now();
-            var SIM_THRESHOLD = .8;
+            var SIM_THRESHOLD = 0.92;
             var OCR_DIST_THRESHOLD = 4;
             var OCR_LEN_MIN_THRESHOLD = 5;
             var OCR_LEN_MAX_THRESHOLD = 17;
             var img = new Image();
             img.crossOrigin = 'CITPymous';
             img.element = request['data'][1];
+            //console.log(img.element);
             img.adchoice_samples = adchoices_hashes;
             img.ad_strings = ad_strings;
             img.t0 = t0;
@@ -186,38 +234,71 @@ chrome.runtime.onMessage.addListener(
                     return true;
                 }
 
-
                 // Hash the image!
                 var hash = aHash(this);
 
                 // Compare hash to set of example adchoice icon hashes
                 var found_element = false;
+                // keep track of max score for this image
+                var max_sim_score = 0;
+                var max_adchoice_sample = null;
+                var max_adchoice_sample_binary = null
                 for (var j = 0; j < this.adchoice_samples.length; j++) {
-                    console.log(hexToBinary(this.adchoice_samples[j]).result);
-                    console.log(hash);
-                    var sim_score = 1 - distance(hash, hexToBinary(this.adchoice_samples[j]).result) / 628.0;
-                    console.log(sim_score);
+                    //console.log(hexToBinary(this.adchoice_samples[j]).result);
+                    //console.log(hash);
+                    var adchoice_sample_binary = hexToBinary(this.adchoice_samples[j]).result;
+                    var sim_score = 1 - distance(hash, adchoice_sample_binary) / 628.0;
+                    //console.log(sim_score + " for " + this.src);
                     if (VERBOSE) {
                         console.log("Sim score: " + sim_score);
+                    }
+                    if (sim_score > max_sim_score) {
+                        max_sim_score = sim_score;
+                        max_adchoice_sample = this.adchoice_samples[j];
+                        max_adchoice_sample_binary = adchoice_sample_binary;
                     }
 
                     if (sim_score > SIM_THRESHOLD) {
                         found_element = true;
                         if (VERBOSE) {
+                          console.log("Found AD by comparing icon hash.");
+                          console.log("Original " + this.adchoice_samples[j]);
                           console.log('GOT IT!');
                           console.log(hash);
                           console.log(this.element);
                           console.log(sim_score);
                           console.log("performance : " + (performance.now() - img.t0));
                         }
+                        let hex_hash = binaryToHex(hash);
+                        if (VERBOSE) {
+                            console.log("Found AD by comparing icon hash. " + given_url +
+                                " with BINARY hash " + hash + ", sim score: " + sim_score + ", matched with " + adchoice_sample_binary);
+                            console.log("Found AD by comparing icon hash. " + given_url +
+                                " with HEX hash " + hex_hash.result + ", sim score: " + sim_score + ", matched with " + this.adchoice_samples[j]);
+                        }
+
                         adchoices_cache[this.element] = true;
-                        this.callback({element: this.element});
+
+                        this.callback({element: this.element, container:this.isIFrame, src_url: this.src, searchSrc: this.searchSrc});
                         return;
                     }
-
+                }
+                if (!found_element) {
+                    potentialAdUrls.add(this.src)
+                    // TODO: comment this out to find the new hex hash to add to adhoices_hash.js
+                    //console.log(this.src + ", binary hash: " + hash + ", " + " hex hash: " + binaryToHex(hash).result + ", is_valid: " + binaryToHex(hash).valid);
+                    if (TRACK_DISSIMILAR_HASHES && src_to_hex_hash[given_url] === undefined) {
+                        let hex_hash = binaryToHex(hash);
+                        if (hex_hash.result !== undefined && hex_hash.valid === true) {
+                            //console.log("src: " + given_url + ", BINARY hash: " + hash + ", is_valid: " + hex_hash.valid + ", max sim score: " + max_sim_score + ", matched with hash " + max_adchoice_sample_binary);
+                            //console.log("src: " + given_url + ", HEX hash: " + hex_hash.result + ", is_valid: " + hex_hash.valid + ", max sim score: " + max_sim_score + ", matched with hash " + max_adchoice_sample);
+                            src_to_hex_hash[given_url] = {hex: hex_hash.result, sim: max_sim_score};
+                        }
+                    }
                 }
 
                 if (USE_OCR) {
+                    /*
                     // If no adchoices icon was identified based on hash,
                     // attempt to find string that might indicate that image
                     // is an ad using OCR
@@ -235,12 +316,13 @@ chrome.runtime.onMessage.addListener(
                      //.progress(function(progress) {console.log(progress);})
                      .then(function (result) {
                         console.log('OCRd image');
+                        //console.log(result.text);
                         if (result.text.length <= OCR_LEN_MIN_THRESHOLD ||
                             result.text.length >= OCR_LEN_MAX_THRESHOLD) {
-                            if (VERBOSE) {
-                                console.log('No Adchoices text found.');
-                                console.log("performance : " + (performance.now() - img.t0));
-                            }
+                            //if (VERBOSE) {
+                            console.log('No Adchoices text found due to text length.');
+                            console.log("performance : " + (performance.now() - img.t0));
+                            //}
                             adchoices_cache[img_element] = false;
                             callback({no_element: "Inside!"});
                             return true;
@@ -260,11 +342,11 @@ chrome.runtime.onMessage.addListener(
                             if (dist <= OCR_DIST_THRESHOLD ||
                                 result.text.toLowerCase().search(ad_strings_for_ocr[j]) != -1) {
                                 adchoices_cache[img_element] = true;
-                                if (VERBOSE) {
-                                    console.log("Found Adchoices text.");
-                                    console.log("performance : " + (performance.now() - img.t0));
-                                }
-                                callback({element: img_element});
+                                //if (VERBOSE) {
+                                console.log("Found Adchoices text.");
+                                console.log("performance : " + (performance.now() - img.t0));
+                                //}
+                                callback({element: img_element, isIFrame:this.isIFrame, src_url: this.src});
                                 return true;
                             }
                             adchoices_cache[img_element] = false;
@@ -278,6 +360,8 @@ chrome.runtime.onMessage.addListener(
                      });
                     this.callback({no_element: "Inside!"});
                     return true;
+                    */
+
                 } else {
                     if (VERBOSE) {
                         console.log("performance : " + (performance.now() - this.t0));
@@ -289,12 +373,20 @@ chrome.runtime.onMessage.addListener(
             }
             if (VERBOSE) {
                 console.log("src:");
-                console.log(request['data'][0]);
-                //console.log("element:");
-                //console.log(request['data'][1]);
+                console.log(given_url);
             }
+
+
             img.callback = sendResponse;
-            img.src = request['data'][0];
+            img.src = given_url;
+            img.originalWidth = request["originalWidth"];
+            img.originalHeight = request["originalHeight"];
+            img.bgXPos = request["bgXPos"];
+            img.bgYPos = request["bgYPos"];
+            img.backgroundSizeWidth = request["backgroundSizeWidth"];
+            img.backgroundSizeHeight = request["backgroundSizeHeight"];
+            img.isIFrame = request["isIFrame"];
+            img.searchsrc = request["searchSrc"];
             return true;
         }
     });
@@ -323,7 +415,7 @@ chrome.runtime.onMessage.addListener(
     var urls = [];
     function getUrlsFromLiveRequest(details) {
         urls.push(details.url);
-        console.log(details.url);
+        //console.log(details.url);
         return {cancel: true};
     }
 
@@ -367,6 +459,48 @@ chrome.runtime.onMessage.addListener(
                         urls: ["<all_urls>"]
                     },
                     ["blocking", "requestHeaders"]);
+            }
+
+            // listen to whether an ad was newly covered
+            if ("ad_covered" in request) {
+                console.log("perceptual-background: a new ad was covered");
+                ad_choices_found += 1;
+                //console.log(request);
+                if ("src_url" in request) {
+                    let src_url = request["src_url"];
+                    //console.log("perceptual-background: new ad url: " + src_url);
+                    if (src_url !== undefined && src_url != null) {
+                        adUrls.add(src_url);
+                    }
+                }
+            }
+
+            // reset the counter for adchoice
+            if ("reset_adchoice_counter" in request) {
+                console.log("Background: resetting adchoice counter");
+                ad_choices_found = 0;
+                adUrls.clear();
+                potentialAdUrls.clear();
+            }
+
+            // get the counter for adchoice
+            if ("get_adchoice_total_in_DOM" in request) {
+                console.log("Background: getting adchoice counter");
+                if (sendResponse != null) {
+                    //console.log(adUrls);
+                    //console.log(potentialAdUrls);
+                    sendResponse({ad_choices_total: ad_choices_found, src_urls: Array.from(adUrls).join(";;"), potential_ads_urls: Array.from(potentialAdUrls).join(";;")})
+                }
+            }
+
+            // get the counter for adchoice
+            if ("get_dissimilar_hashes_in_DOM" in request) {
+                console.log("Background: getting hashes that are dissimilar");
+                if (sendResponse != null) {
+                    //console.log(adUrls);
+                    //console.log(potentialAdUrls);
+                    sendResponse({hashes: src_to_hex_hash})
+                }
             }
             return true;
         });

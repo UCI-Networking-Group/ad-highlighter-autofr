@@ -1,4 +1,4 @@
-# Perceptual Ad Blocker
+# Perceptual Ad Blocker (Ad Highlighter)
 
 This extension is a perceptual ad blocker which highlights advertisements on
 Facebook and Adchoices advertisements across the web.

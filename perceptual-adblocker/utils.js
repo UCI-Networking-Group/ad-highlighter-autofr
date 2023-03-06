@@ -43,7 +43,10 @@ function alreadyCoveredSameType(container, newCoverIsAd) {
 // isAd is true if it is an ad
 // hasInterval is true if there is an interval check associated with this cover
 // intervalID is the id of that interval
-function coverContainer(container, coverText, matchingText, deepestOnly, isAd, hasInterval, intervalID) {
+// src_url is the URL of the image
+// searchSrc is the source of how we found the image
+function coverContainer(container, coverText, matchingText, deepestOnly, isAd,
+                        hasInterval, intervalID, src_url, searchSrc) {
     // if we aren't doing anything to non-ads and this isn't an ad, do nothing.
     if (!isAd && !showNonAd) {
       return false;
@@ -54,21 +57,31 @@ function coverContainer(container, coverText, matchingText, deepestOnly, isAd, h
     return false;
   }
 
+  if (isAd) {
+    // notify background that it covered ads
+    chrome.runtime.sendMessage({ad_covered: true, src_url: src_url});
+  }
+
   // remove any existing covers (if we are moving from non-ad to ad)
   container.find(".CITP_adBlockerCover").remove();
 
   // vary the color and classes based on whether this is an ad or not.
   var color;
   var classes = "CITP_adBlockerCover";
+  var border_style = "auto";
+  var border_color = "white";
   if (isAd) {
-    if (showNonAd) {
-      color = "rgba(255, 0, 0, 0.8)";
-    } else {
-      color = "rgba(255, 255, 255, 0.8)";
+    if (searchSrc) {
+      classes += " " + searchSrc;
     }
+    color = "rgba(255, 0, 0, 0.2)";
+    border_style = "solid";
+    border_color = "red";
     classes += " CITP_isAnAd";
   } else {
-    color = "rgba(255, 255, 255, 0.8)";
+    if (showNonAd) {
+      color = "rgba(255, 255, 255, 0.8)";
+    }
   }
 
   // some google ads have a height of 0 and then everything in overflow,
@@ -77,21 +90,26 @@ function coverContainer(container, coverText, matchingText, deepestOnly, isAd, h
   var setHeight;
   var containerHeight = container.height();
   var containerScrollHeight = container.prop('scrollHeight');
-  if (containerHeight == 0 && containerScrollHeight > 0) {
+  if (containerHeight === 0 && containerScrollHeight > 0) {
     setHeight = containerScrollHeight;
   } else {
     setHeight = "100%"
   }
 
+  var src_url_tmp = "";
+  if (src_url) {
+    src_url_tmp = src_url;
+  }
+
   // create the cover to prepend.
-  var prepend = "<div class=\"" + classes + "\" style=\"height: " + setHeight + ";position: absolute;width: 100%;background-color: " + color + " !important;z-index: 100; visibility: visible;\">";
+  var prepend = "<div class=\"" + classes + "\" data-ad-highlighter-src-url=\"" + src_url_tmp + "\" style=\"height: " + setHeight + ";position: absolute; width: 100%; background-color: " + color + " !important;z-index: 2147483648; visibility: visible;\">";
   prepend += "<div class=\"FAH_closeButton\" style=\"position: absolute; right: 5px; top: 5px; cursor: pointer; padding: 0px 3px; border: 1px solid black; border-radius: 5px;\">";
   prepend += "<strong>";
   prepend += "X";
   prepend += "</strong>";
   prepend += "</div>";
   prepend += "<div style=\"width: 100%;text-align:center;\">";
-  prepend += "<span style=\"color: black; font-size:60px;\">";
+  prepend += "<span style=\"color: black; font-size:30px;\">";
   prepend += coverText;
   prepend += "</span>";
   // if we have "Sponsored" text in another language, add it below "THIS IS AN AD"

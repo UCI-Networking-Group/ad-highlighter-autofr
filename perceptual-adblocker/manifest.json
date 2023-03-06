@@ -21,11 +21,12 @@
         "externalCode/jquery/jquery-1.12.4.min.js",
         "perceptualLibrary/image_search.js",
         "utils.js",
+        "flg_extend.js",
         "content.js"
       ],
       "run_at": "document_idle",
       "all_frames": true,
-      "match_about_blank": true
+      "match_about_blank": false
     },
     {
       "matches": ["https://www.facebook.com/*"],
@@ -41,8 +42,6 @@
   ],
   "background": {
     "scripts": [
-        "externalCode/grafi.js",
-        "externalCode/tesseract.js",
         "perceptualLibrary/adchoices_hashes.js",
         "perceptualLibrary/hash_encoding.js",
         "perceptualLibrary/perceptual_background.js"
@@ -54,11 +53,9 @@
     "webRequestBlocking",
     "*://*/*"
   ],
-  "content_security_policy": "object-src 'self'; img-src * data:; script-src 'self' 'unsafe-eval' chrome-extension://gealglfelmndodeocfbfedggekgiofhe blob: filesystem: chrome-extension-resource:",
+  "content_security_policy": "object-src 'self'; img-src * data:;  script-src 'self' 'unsafe-eval' chrome-extension://gealglfelmndodeocfbfedggekgiofhe blob: filesystem: chrome-extension-resource:",
   "web_accessible_resources": [
-    "actual_icons/*.png",
-    "externalCode/tesseract_index.js",
-    "externalCode/tesseract_worker.js",
-    "externalCode/eng.traineddata.gz"
+    "images/*.png",
+    "actual_icons/*.png"
   ]
 }

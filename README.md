@@ -1,6 +1,12 @@
-# Ad Blocking Tools
-This repository contains the various tools associate with the paper ["The Future of Ad Blocking: An Analytical Framework and New Techniques."](http://randomwalker.info/publications/ad-blocking-framework-techniques.pdf) See also [our blog post on the topic](https://freedom-to-tinker.com/2017/04/14/the-future-of-ad-blocking/).
+# Ad Highlighter for AutoFR
 
-- *perceptual-adblocker* contains our perceptual ad blocker as a Chrome extension. You can also find the extension in the [Chrome Store](https://chrome.google.com/webstore/detail/perceptual-ad-blocker/mahgiflleahghaapkboihnbhdplhnchp?hl=en).
-- *rootkit-stealthy* contains our rootkit stealthy ad blocker as a Chrome extension.
-- *signature-active* contains the signature-based active ad blocker as a Firefox extension and a mitmproxy script, as well as a table breaking down the various ad blocker detection methods found.
+Ad Highlighter has been modified to work with [AutoFR](https://github.com/UCI-Networking-Group/AutoFR), using its [perceptual-adblocker](perceptual-adblocker) only.
+
+We add/modified the following:
+* Event listeners to get the total ads detected and information like the src url of the iframes. See [content.js](perceptual-adblocker/content.js).
+* More AdChoice hashes. See [adchoices_hashes.js](perceptual-adblocker/perceptualLibrary/adchoices_hashes.js).
+* Improved method of getting background image position and sizes. See getBackgroundImagePos() from [image_search.js](perceptual-adblocker/perceptualLibrary/image_search.js).
+
+For information about how it works, see [Perceptual-Adblocker's README](perceptual-adblocker/README.md).
+
+
